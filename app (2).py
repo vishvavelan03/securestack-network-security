@@ -1,12 +1,11 @@
 
 import os
-import time
 import requests
 import streamlit as st
 
-# =========================
-# PAGE CONFIG
-# =========================
+# ==============================
+# PAGE CONFIGURATION
+# ==============================
 st.set_page_config(
     page_title="SecureStack | Cyber Defense",
     page_icon="🛡️",
@@ -15,12 +14,13 @@ st.set_page_config(
 )
 
 API_URL = os.getenv(
-    "API_URL", "http://localhost:5000"
+    "API_URL",
+    "http://localhost:5000"
 ).rstrip("/")
 
-# =========================
-# CUSTOM CYBER UI
-# =========================
+# ==============================
+# CUSTOM CYBER THEME
+# ==============================
 st.markdown("""
 <style>
 .stApp {
@@ -40,21 +40,6 @@ h1, h2, h3 {
     padding: 18px;
     border-radius: 14px;
 }
-div.stButton > button {
-    background: #00dca5;
-    color: #06121b;
-    border: none;
-    border-radius: 9px;
-    font-weight: 700;
-    min-height: 42px;
-}
-div.stButton > button:hover {
-    background: #65ffcf;
-    color: #06121b;
-}
-div[data-testid="stAlert"] {
-    border-radius: 10px;
-}
 .cyber-banner {
     background: linear-gradient(100deg, #102d42, #10213a);
     border: 1px solid #00dca5;
@@ -71,46 +56,55 @@ div[data-testid="stAlert"] {
 .subtle {
     color: #9db3c9;
 }
-.panel {
-    background: #101f32;
-    border: 1px solid #21405b;
-    border-radius: 14px;
-    padding: 18px;
-    min-height: 115px;
-}
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# API FUNCTIONS
-# =========================
+
+# ==============================
+# API REQUEST HANDLER
+# ==============================
 def fetch_endpoint(path):
     try:
         response = requests.get(
             f"{API_URL}{path}",
             timeout=4
         )
+
         try:
             data = response.json()
         except ValueError:
-            data = {"message": "Invalid API response"}
+            data = {
+                "message": "Backend returned an invalid response."
+            }
 
-        return response.status_code, data
+        if not response.ok:
+            return response.status_code, data, (
+                f"The service returned HTTP {response.status_code}."
+            )
 
-    except requests.RequestException as exc:
-        return None, {"error": str(exc)}
+        return response.status_code, data, None
+
+    except requests.exceptions.Timeout:
+        return None, {}, (
+            "The backend took too long to respond. "
+            "Check whether the service is running."
+        )
+
+    except requests.exceptions.ConnectionError:
+        return None, {}, (
+            "Cannot connect to the backend. "
+            "Check the Flask service and API URL."
+        )
+
+    except requests.exceptions.RequestException:
+        return None, {}, (
+            "The request failed. Check your network and backend URL."
+        )
 
 
-def is_database_connected(code, data):
-    return (
-        code == 200
-        and data.get("database") == "Connected"
-    )
-
-
-# =========================
+# ==============================
 # SIDEBAR
-# =========================
+# ==============================
 with st.sidebar:
     st.markdown("## 🛡️ SECURESTACK")
     st.caption("CYBER DEFENSE CONSOLE")
@@ -127,61 +121,74 @@ with st.sidebar:
 
     st.divider()
     st.markdown("### ⚙️ Configuration")
-    st.code(API_URL, language="text")
+    st.code(API_URL)
 
-    if st.button("↻ Refresh Dashboard", use_container_width=True):
+    if st.button("↻ Retry Connection", use_container_width=True):
         st.rerun()
 
-    st.caption("Monitoring interface • Demo edition")
 
-# =========================
-# HEADER
-# =========================
+# ==============================
+# DASHBOARD HEADER
+# ==============================
 st.markdown("""
 <div class="cyber-banner">
     <div class="eyebrow">NETWORK OPERATIONS CENTER</div>
     <h1>SecureStack Cyber Defense</h1>
     <p class="subtle">
-        Backend availability • Database connectivity • API diagnostics
+        Backend Monitoring • Database Connectivity • API Diagnostics
     </p>
 </div>
 """, unsafe_allow_html=True)
 
-# Fetch data when the page loads or reruns
-health_code, health_data = fetch_endpoint("/api/health")
-db_code, db_data = fetch_endpoint("/api/status")
+
+# ==============================
+# FETCH STATUS
+# ==============================
+health_code, health_data, health_error = fetch_endpoint(
+    "/api/health"
+)
+
+db_code, db_data, db_error = fetch_endpoint(
+    "/api/status"
+)
 
 backend_online = (
-    health_code is not None
-    and health_code == 200
+    health_code == 200
     and health_data.get("status") == "Online"
 )
 
-database_online = is_database_connected(db_code, db_data)
+database_online = (
+    db_code == 200
+    and db_data.get("database") == "Connected"
+)
 
-# =========================
-# OVERVIEW
-# =========================
+
+# ==============================
+# OVERVIEW PAGE
+# ==============================
 if page == "Overview":
+
     st.markdown("### ◈ Infrastructure Overview")
 
-    c1, c2, c3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-    with c1:
+    with col1:
         st.metric(
             "BACKEND",
             "ONLINE" if backend_online else "OFFLINE"
         )
+
         if backend_online:
-            st.success("API health check passed")
+            st.success("Health check passed")
         else:
             st.error("Backend unavailable")
 
-    with c2:
+    with col2:
         st.metric(
             "POSTGRESQL",
-            "CONNECTED" if database_online else "DISCONNECTED"
+            "CONNECTED" if database_online else "NOT CONNECTED"
         )
+
         if database_online:
             st.success("Database query successful")
         elif db_code == 503:
@@ -189,116 +196,172 @@ if page == "Overview":
         else:
             st.warning("Database status unavailable")
 
-    with c3:
+    with col3:
         st.metric(
-            "HTTP STATUS",
+            "API STATUS",
             str(db_code) if db_code is not None else "N/A"
         )
-        st.caption("Response from /api/status")
+
+        st.caption("HTTP response from /api/status")
 
     st.divider()
 
-    left, right = st.columns([1, 1])
+    left, right = st.columns(2)
 
     with left:
         st.markdown("### 🟢 Health Endpoint")
-        if health_data:
+
+        if backend_online:
             st.json(health_data)
         else:
-            st.info("No health response available.")
+            st.warning(
+                health_error
+                or "The health endpoint is unavailable."
+            )
+
+            st.markdown("**Troubleshooting:**")
+            st.markdown("""
+            1. Check whether Flask is running.
+            2. Verify the API URL.
+            3. For cloud deployment, use the deployed backend URL.
+            """)
 
     with right:
         st.markdown("### 🗄️ Database Intelligence")
+
         if database_online:
             st.success("PostgreSQL connection verified")
+
             st.write(
-                db_data.get("database_version", "Version unavailable")
+                db_data.get(
+                    "database_version",
+                    "Version unavailable"
+                )
             )
+
+        elif db_code == 503:
+            st.error(
+                "Flask is reachable, but the database connection failed. "
+                "Check PostgreSQL credentials and configuration."
+            )
+
         else:
             st.warning(
-                "Database details unavailable. "
-                "Inspect the backend configuration."
+                db_error or "Database details are unavailable."
             )
 
     st.caption(
-        "Note: These indicators report API/database connectivity, "
-        "not a full security audit."
+        "Connectivity monitoring only. "
+        "This dashboard does not perform a full security audit."
     )
 
-# =========================
-# API INSPECTOR
-# =========================
+
+# ==============================
+# API INSPECTOR PAGE
+# ==============================
 elif page == "API Inspector":
+
     st.markdown("### ◈ API Inspector")
-    st.write("Inspect responses from your Flask service.")
 
     endpoint = st.selectbox(
         "Choose endpoint",
-        ["/api/health", "/api/status"]
+        [
+            "/api/health",
+            "/api/status"
+        ]
     )
 
     if st.button("Run API Request"):
-        code, result = fetch_endpoint(endpoint)
 
-        st.markdown("#### Response")
+        code, result, error = fetch_endpoint(endpoint)
+
+        st.markdown("#### API Response")
+
         st.metric(
-            "HTTP Status",
-            str(code) if code is not None else "Request failed"
+            "HTTP STATUS",
+            str(code) if code is not None else "Unavailable"
         )
-        st.json(result)
 
         if code == 200:
             st.success("Request completed successfully")
+            st.json(result)
+
         elif code is not None:
-            st.warning(f"Endpoint returned HTTP {code}")
+            st.error(f"Request failed: HTTP {code}")
+            st.warning(
+                error or "The backend could not complete the request."
+            )
+
         else:
-            st.error("Could not reach the Flask backend")
+            st.error("Backend connection failed")
+            st.warning(
+                error or "Check whether the backend is running."
+            )
 
     st.info(
-        "This inspector sends GET requests only. "
+        "This tool sends GET requests only. "
         "It does not perform penetration testing."
     )
 
-# =========================
-# SYSTEM DIAGNOSTICS
-# =========================
+
+# ==============================
+# SYSTEM DIAGNOSTICS PAGE
+# ==============================
 elif page == "System Diagnostics":
+
     st.markdown("### ◈ System Diagnostics")
 
-    st.markdown("#### Backend")
-    st.write("Configured API URL:")
+    st.markdown("#### Backend Configuration")
     st.code(API_URL)
 
-    st.write("Health endpoint response:")
-    st.code(
-        str(health_code) if health_code is not None else "Connection failed"
-    )
+    st.markdown("#### Health Endpoint")
 
-    st.markdown("#### Database")
-    st.write("Database endpoint response:")
-    st.code(
-        str(db_code) if db_code is not None else "Connection failed"
-    )
+    if backend_online:
+        st.success("Backend is reachable")
+        st.json(health_data)
+    else:
+        st.error(
+            health_error or "Health endpoint unavailable."
+        )
 
-    st.write("Database status payload:")
-    st.json(db_data if db_data else {})
+    st.markdown("#### Database Endpoint")
 
-    st.markdown("#### Troubleshooting")
+    if database_online:
+        st.success("Database is connected")
+        st.json(db_data)
+
+    elif db_code == 503:
+        st.error(
+            "PostgreSQL is disconnected. "
+            "Check the database service and credentials."
+        )
+
+    else:
+        st.warning(
+            db_error or "Database status unavailable."
+        )
+
+    st.markdown("#### Troubleshooting Checklist")
+
     st.markdown("""
-    - Verify that the Flask backend is running.
-    - Check the `API_URL` environment variable.
-    - Verify PostgreSQL credentials and database hostname.
-    - In Docker, use the Flask service name instead of `localhost`
-      when both containers share the same network.
+    - Start the Flask backend.
+    - Check that the backend listens on port 5000.
+    - Configure the correct API_URL.
+    - Verify PostgreSQL credentials and hostname.
+    - In Docker, use the backend service name.
+    - In Streamlit Cloud, deploy Flask separately and use its public URL.
     """)
 
-# =========================
+
+# ==============================
 # FOOTER
-# =========================
+# ==============================
 st.divider()
+
 st.markdown(
     '<p class="subtle">SECURESTACK • CYBER DEFENSE CONSOLE '
-    '• Connectivity monitoring</p>',
+    '• CONNECTIVITY MONITORING</p>',
     unsafe_allow_html=True
 )
+
 
