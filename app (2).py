@@ -1,47 +1,66 @@
-import os
-from flask import Flask, jsonify
-import psycopg2
 
-app = Flask(__name__)
-
-DB_HOST = os.getenv("DB_HOST", "database")
-DB_NAME = os.getenv("DB_NAME", "securestack")
-DB_USER = os.getenv("DB_USER", "securestack_user")
-DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "")
+        return None, None
 
 
-def get_db_connection():
-    return psycopg2.connect(
-        host=DB_HOST,
-        dbname=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        connect_timeout=3,
+st.title("🔐 SecureStack Dashboard")
+st.caption("Backend & PostgreSQL Monitoring")
+st.divider()
+
+if st.button("🔄 Refresh Status"):
+    st.rerun()
+
+health = get_health()
+status_code, status_data = get_status()
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.subheader("Backend")
+    if health:
+        st.success("🟢 Online")
+    else:
+        st.error("🔴 Offline")
+
+with col2:
+    st.subheader("Database")
+    if status_code == 200 and status_data:
+        st.success("🟢 Connected")
+    elif status_code == 503:
+        st.error("🔴 Disconnected")
+    else:
+        st.warning("⚪ Unknown")
+
+with col3:
+    st.subheader("API Health")
+    st.metric(
+        "Status",
+        health.get("status", "Unavailable") if health else "Unavailable",
     )
 
+st.divider()
+st.subheader("📊 System Details")
 
-@app.get("/api/health")
-def health():
-    return jsonify(status="Online", backend="Connected")
+if health:
+    st.write("**Health Endpoint Response**")
+    st.json(health)
+else:
+    st.warning(
+        "Cannot reach Flask backend. Check that the backend is running "
+        "and API_URL is correct."
+    )
 
+if status_data:
+    st.write("**Database Status Response**")
+    st.json(status_data)
 
-@app.get("/api/status")
-def status():
-    try:
-        with get_db_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT version();")
-                version = cursor.fetchone()[0]
-        return jsonify(
-            backend="Connected",
-            database="Connected",
-            database_version=version,
+    if status_code == 200:
+        st.info(
+            "PostgreSQL Version: "
+            + status_data.get("database_version", "Unknown")
         )
-    except Exception:
-        app.logger.exception("Database status check failed")
-        return jsonify(backend="Connected", database="Disconnected"), 503
+    elif status_code == 503:
+        st.error("Database connection failed. Check database settings.")
+else:
+    st.warning("Status endpoint is unavailable.")
 
-
-if __name__ == "__main__":
-    # Development server for this educational demo only.
-    app.run(host="0.0.0.0", port=5000)
+st.caption("SecureStack • Monitoring Dashboard")
